@@ -8,7 +8,8 @@ export const SOURCE_UUID = "4d619156-3250-4212-8399-129f3280fab1";
 export const SOURCE_NAMESPACE = "faculty-provided-sample-patient-details";
 export const SCOPE_ID = "twinverse-event";
 export const DEFAULT_PACKAGE =
-  "/Users/ayushi/Downloads/Challenge 1_ The Virtual Patient Encounter System.zip";
+  process.env["TWINVERSE_CHALLENGE_PACKAGE"] ??
+  "sources/Challenge 1_ The Virtual Patient Encounter System.zip";
 export type Item = Record<string, unknown> & { PK: string; SK: string };
 interface ParsedRecord {
   readonly record: Record<string, string>;

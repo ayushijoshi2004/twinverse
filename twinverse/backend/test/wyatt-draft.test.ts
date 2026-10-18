@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { after, test } from "node:test";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import AdmZip from "adm-zip";
 import {
   buildDraft,
   patientIdForSource,
@@ -8,8 +12,31 @@ import {
   verifyDraft,
 } from "../scripts/wyatt-draft.js";
 
+// Exercise the real ZIP/CSV reader without depending on a private challenge download.
+const fixture = JSON.parse(readFileSync(new URL("./fixtures/wyatt-import-preview.json", import.meta.url), "utf8")) as {
+  items: { entityType: string; originalRow?: Record<string, string> }[];
+};
+const row = fixture.items.find(item => item.entityType === "IMMUTABLE_IMPORT_SNAPSHOT")?.originalRow;
+assert.ok(row);
+const headers = Object.keys(row);
+const csvCell = (value: string) => `"${value.replaceAll('"', '""')}"`;
+const csvRow = (values: Record<string, string>) => headers.map(key => csvCell(values[key] ?? "")).join(",");
+const csv = [headers.map(csvCell).join(","), csvRow({ ...row, "patient-uuid": "other-patient", "patient-name": "Other Patient" }), csvRow(row)].join("\r\n") + "\r\n";
+const directory = mkdtempSync(join(tmpdir(), "twinverse-wyatt-test-"));
+const packagePath = join(directory, "challenge.zip");
+const portrait = Buffer.from("Synthetic portrait bytes for import verification only");
+const nested = new AdmZip();
+nested.addFile("patient-images/Wyatt Nelson, Patient.png", portrait);
+const archive = new AdmZip();
+const prefix = "challenge/sample patient profiles for student interaction/patient images/";
+archive.addFile("challenge/faculty-provided-sample-patient-details.csv", Buffer.from(csv));
+archive.addFile(`${prefix}Wyatt Nelson, Patient.png`, portrait);
+archive.addFile(`${prefix}patient-images.zip`, nested.toBuffer());
+archive.writeZip(packagePath);
+after(() => rmSync(directory, { recursive: true, force: true }));
+
 test("Wyatt source identity and unmodified CSV values survive import preparation", () => {
-  const source = readWyattSource();
+  const source = readWyattSource(packagePath);
   const items = buildDraft(
     source,
     "2026-10-10T00:00:00.000Z",
@@ -27,7 +54,7 @@ test("Wyatt source identity and unmodified CSV values survive import preparation
   verifyDraft(items, structuredClone(items));
 });
 test("draft is unapproved and has no publication, reports, uploads, or invented medical details", () => {
-  const items = buildDraft(readWyattSource(), "time", "actor", "owner");
+  const items = buildDraft(readWyattSource(packagePath), "time", "actor", "owner");
   const head = items.find((item) => item.SK === "HEAD");
   assert.equal(head?.["status"], "DRAFT");
   assert.equal(head?.["reviewRequired"], true);
@@ -52,7 +79,7 @@ test("draft is unapproved and has no publication, reports, uploads, or invented 
   assert.equal(portrait?.["applicationStorageReference"], null);
 });
 test("repeated preparation maps the same source identity to the same item keys", () => {
-  const source = readWyattSource();
+  const source = readWyattSource(packagePath);
   const first = buildDraft(source, "time1", "actor", "owner");
   const second = buildDraft(source, "time2", "actor", "owner");
   assert.deepEqual(
@@ -62,7 +89,7 @@ test("repeated preparation maps the same source identity to the same item keys",
   assert.equal(first[0]?.["patientId"], patientIdForSource());
 });
 test("round-trip verification rejects lost or changed source data", () => {
-  const expected = buildDraft(readWyattSource(), "time", "actor", "owner");
+  const expected = buildDraft(readWyattSource(packagePath), "time", "actor", "owner");
   const changed = structuredClone(expected);
   const snapshot = changed.find(
     (item) => item["entityType"] === "IMMUTABLE_IMPORT_SNAPSHOT",
