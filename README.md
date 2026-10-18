@@ -1,42 +1,140 @@
-# TwinVerse - combined student and faculty application
+# TwinVerse
 
-`main` contains the current student encounter, Faculty Studio and AI rubric feedback, sharing the TypeScript backend and existing AWS services. Earlier work is preserved on the branches listed below.
+**AI virtual-patient encounters for healthcare education.** Built during HealthHack, TwinVerse lets students practice interviewing simulated patients while faculty create cases, control when clinical information becomes available, and review rubric-based feedback.
+
+## What it does
+
+- **Student encounters:** sign in, select a patient, ask questions, revisit saved conversations, and end a session for feedback.
+- **Faculty Studio:** author cases, import JSON/YAML, generate drafts with AI, review consistency findings, and publish versioned cases.
+- **Grounded patient dialogue:** use server-owned case context, preserve missing/conflicting information, and keep private teaching material out of student-facing responses.
+- **AI-assisted assessment:** evaluate completed transcripts against a 16-item rubric, validate cited evidence, and let faculty add comments separately from model scores.
+- **Voice and avatars:** optional microphone transcription and spoken patient replies through ElevenLabs, with a Three.js patient avatar.
+- **Clinical documents:** private-file handling and encounter-specific release checks are implemented behind a storage feature flag.
+
+This is an educational prototype, not a clinical decision-making tool. The runnable server is a local development integration, not a production deployment.
+
+## Stack and architecture
+
+| Layer | Implementation |
+| --- | --- |
+| Interface | React 19, TypeScript, Vite 8, Tailwind CSS 4, Three.js |
+| Local API | Node.js 24, TypeScript, native HTTP server |
+| Identity | Amazon Cognito, OAuth authorization code flow with PKCE |
+| Persistence | Amazon DynamoDB; versioned cases and student-owned encounters |
+| AI | Amazon Bedrock Converse API, Amazon Nova 2 Lite |
+| Voice | ElevenLabs text-to-speech and transcription (optional) |
+| Documents / infrastructure | Amazon S3 integration; AWS CDK definitions |
+| Checks | TypeScript, ESLint, Node test runner, GitHub Actions |
+
+```mermaid
+flowchart LR
+    Student[Student encounter UI] --> API[Local Node.js API]
+    Faculty[Faculty Studio and review UI] --> API
+    API --> Cognito[Amazon Cognito]
+    API --> DynamoDB[Cases, encounters and feedback]
+    API --> Bedrock[Amazon Bedrock]
+    API --> Voice[ElevenLabs: optional voice]
+    API --> Files[Private S3 files: feature-gated]
+```
+
+The browser calls `/api` through Vite's proxy. AWS clients and voice-provider configuration stay on the server. Faculty draft information and answer guides are not browser-owned encounter state.
 
 ## Run locally
 
-Use Node.js 24 or later. Follow [AWS credentials setup](twinverse/aws/README.md) first. No AWS resources are created by starting the app.
+### Prerequisites
 
-In `twinverse/backend`, run `npm ci`, then:
+- Node.js **24 or later**, with npm.
+- Your own authorized access to the existing event AWS environment, including DynamoDB and Bedrock. Follow [AWS profile setup](twinverse/aws/README.md).
+- Access to the configured Cognito app. Faculty access additionally requires membership in its **Faculty** group.
+
+The event account, region, resource names and Cognito configuration are currently bound in source. Cloning this repository does not create these resources, grant access, or provide a standalone cloud deployment. Temporary event credentials and services may no longer be available.
+
+### 1. Start the local API
+
+From the repository root:
 
 ```sh
-ENABLE_FACULTY_DEVELOPMENT=true npm run serve:student
+cd twinverse/backend
+npm ci --ignore-scripts
+cp .env.server.example .env.server
+npm run serve:student
 ```
 
-In a separate terminal, in `twinverse/frontend`, run `npm ci`, then:
+The command loads `.env.server` and starts the API at `http://127.0.0.1:8787`. The example enables the local student/faculty routes and leaves private document uploads disabled. Voice is optional; leave its placeholder values unchanged for text-only use. See [backend configuration](twinverse/backend/README.md) before enabling voice or files.
+
+### 2. Start the interface
+
+In another terminal, from the repository root:
 
 ```sh
-npm run dev -- --host 127.0.0.1 --port 8443
+cd twinverse/frontend
+npm ci --ignore-scripts
+npm run dev
 ```
 
-Open http://127.0.0.1:8443/ for students or http://127.0.0.1:8443/faculty.html for faculty. Faculty access requires the existing Cognito Faculty group. A shared AWS account does not automatically grant a Cognito user faculty access.
+| Screen | Local URL |
+| --- | --- |
+| Student encounters | http://127.0.0.1:8443/ |
+| Faculty Studio | http://127.0.0.1:8443/faculty.html |
+| Faculty feedback review | http://127.0.0.1:8443/feedback/faculty |
 
-Text conversations and faculty generation/checking use the existing Bedrock model. Spoken replies and microphone transcription require server-side ElevenLabs configuration. See the backend documentation and `twinverse/backend/.env.server.example`; the dynamic secret reference must be resolved by `asm-exec`, not passed literally to ElevenLabs. Do not put real secrets in example files or frontend configuration.
+Use port **8443**: the API's local-origin checks and Cognito callback flow expect it. Despite that port number, these development URLs use **HTTP**.
 
-Wyatt remains an unapproved development preview. Faculty draft saving, JSON/YAML import, AI generation, consistency review and publishing are included. Ending a student session locks the encounter and opens the rubric feedback report; faculty review reports and add comments at http://127.0.0.1:8443/feedback/faculty. Feedback is scored by the backend (`twinverse/backend/lib/encounter-feedback.ts`, rubric in `twinverse/backend/lib/encounter-rubric.json`). Set `VITE_FEEDBACK_SOURCE=sample` in `twinverse/frontend/.env.local` to show offline sample reports instead. JSON/YAML import maps data deterministically; it does not automatically invent missing fields with AI.
+### Offline feedback preview
 
-AWS credentials are read only from the `twinverse-event` profile in `~/.aws/credentials`. Exported `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/`AWS_SESSION_TOKEN` variables are ignored. When the temporary credentials expire, replace all three values in that file and restart the backend.
+You can inspect sample faculty feedback without AWS:
 
-## Repository branches
+```sh
+cd twinverse/frontend
+cp .env.example .env.local
+# Add VITE_FEEDBACK_SOURCE=sample to .env.local, then start/restart Vite.
+npm run dev
+```
 
-- `main`: current integrated application (this branch), including AI rubric feedback.
-- `merge-ai-evaluation`: the merge of `final` and `ai-evaluation` that `main` was set to.
-- `final`: integrated application before the rubric feedback merge.
-- `ai-evaluation`: rubric feedback work, now merged into `main`.
-- `main-backup-before-override`: the previous `main`, including the hand-written demo encounters.
-- `encounter-feedback`, `twinverse-combined`, `twinverse-student-experience`, `frontend`: earlier preserved branches.
+Open `/feedback/faculty`. Sample-mode comments are stored in that browser's local storage. This previews feedback screens only; live student encounters and Faculty Studio still require the backend and authentication.
 
 ## Checks
 
-Backend: `npm run check`, `npm run lint`, `npm test`.
-Frontend: `npm run check`, `npm run build`, `npm run test:integration`.
-Some legacy CSV import tests require the separately supplied challenge archive; update its machine-specific path when running on another computer.
+Run in `twinverse/backend`:
+
+```sh
+npm run check
+npm run lint
+npm test
+```
+
+Run in `twinverse/frontend`:
+
+```sh
+npm run check
+npm run test:integration
+npm run build
+```
+
+These checks use fixtures and mocked service calls; they do not require live AWS credentials, ElevenLabs, or the private challenge ZIP. The auth test binds a temporary loopback port. GitHub Actions runs both sets on pushes and pull requests.
+
+## Project layout
+
+```text
+twinverse/
+  frontend/   Student UI, Faculty Studio, feedback views and API clients
+  backend/    Local API, case/encounter logic, model calls, tests and CDK
+  aws/        Credential-free AWS profile examples and setup notes
+  docs/       Document-release and feedback integration notes
+```
+
+- [Backend setup and boundaries](twinverse/backend/README.md)
+- [Frontend setup](twinverse/frontend/README.md)
+- [Faculty/student document and feedback flow](twinverse/docs/SESSION-DOCUMENTS-FEEDBACK.md)
+- [Feedback API contracts](twinverse/frontend/FEEDBACK-INTEGRATION.md)
+- [Initial DynamoDB milestone (historical)](twinverse/backend/PATIENTS-STEP-1-HISTORY.md)
+
+## Current limitations
+
+- The built-in Wyatt cases are unapproved development previews, not approved published teaching cases.
+- Cloud-backed interactions need the original event resources and an authorized account; local setup is not an offline encounter simulator.
+- Private file uploads are disabled until their storage setup has been reviewed and deployed. Setting a flag alone does not create storage.
+- AI feedback requires faculty judgment. Generated drafts and extracted document text require review before publishing.
+- Starting the app does not provision AWS resources. CDK definitions and old deployment notes are not a one-command production deployment.
+
+Earlier implementation branches are retained in Git history; `main` contains the integrated student, faculty and feedback application.

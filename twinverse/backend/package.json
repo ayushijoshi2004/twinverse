@@ -1,5 +1,5 @@
 {
-  "name": "twinverse-patients-step1",
+  "name": "twinverse-backend",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -12,7 +12,7 @@
     "preview:wyatt": "node --import tsx scripts/preview-wyatt.ts",
     "import:wyatt": "node --import tsx scripts/import-wyatt.ts",
     "load:patient": "node --import tsx scripts/load-patient.ts",
-    "serve:student": "ENABLE_STUDENT_DEVELOPMENT_PREVIEW=true node --import tsx scripts/student-preview-server.ts",
+    "serve:student": "ENABLE_STUDENT_DEVELOPMENT_PREVIEW=true node --env-file-if-exists=.env.server --import tsx scripts/student-preview-server.ts",
     "synth:student-auth": "cdk synth --app \"node --import tsx bin/student-auth.ts\" --strict --output review/student-auth"
   },
   "dependencies": {
@@ -40,5 +40,8 @@
     "tsx": "4.23.15",
     "typescript": "~5.9.0",
     "typescript-eslint": "^8.0.0"
+  },
+  "engines": {
+    "node": ">=24"
   }
 }
